@@ -1,0 +1,98 @@
+--CERERI SQL - CERINTA 11
+
+--1. Sa se afiseze toate detaliile locatiilor saloanelor din afara Bucurestiului pentru care furnizorii au intocmit
+--contracte pe perioada nedeterminata (durata = null).
+
+SELECT l.cod_locatie, l.judet, l.oras, l.strada, l.numar
+FROM furnizor f JOIN aprovizionat_de a ON (f.cod_furnizor = a.cod_furnizor)
+                JOIN salon s ON (s.cod_salon = a.cod_salon)
+                JOIN locatie l ON (l.cod_locatie = s.cod_locatie)
+WHERE f.durata is null and upper(l.judet) not like '%BUCURESTI%'
+ORDER BY l.judet;
+
+--2. Sa se afiseze clientii care merg la cei mai bine platiti angajati de pe job-ul lor.
+
+SELECT cod_client, concat(nume_client, ' ') || prenume_client "Nume si prenume client"
+FROM client c
+WHERE c.cod_client IN 
+    (SELECT m.cod_client 
+    FROM merge_la m
+    WHERE m.cod_angajat IN
+        (SELECT a.cod_angajat
+        FROM angajat a
+        WHERE a.salariu_angajat IN 
+            (SELECT max(b.salariu_angajat)
+            FROM angajat b
+            GROUP BY b.cod_job
+            HAVING max(b.salariu_angajat) > 3000 )));
+            
+   
+--3. Sa se afiseze pretul total platit de fiecare client care are programari in prima saptamana din iulie (01-JUL-2021 - 07-JUL-2021).
+
+WITH pret_total AS
+    (SELECT nume_client, prenume_client, sum(pret) as total_client
+    FROM client c JOIN programare p ON (c.cod_client = p.cod_client)
+                  JOIN serviciu s ON (s.cod_serviciu = p.cod_serviciu) 
+    WHERE data_programare between add_months('01-JUN-2021', 1) and
+        next_day(add_months('01-JUN-2021', 1), to_char(add_months('01-JUN-2021', 1),'day'))
+    GROUP BY nume_client, prenume_client)
+    
+SELECT * 
+FROM pret_total;
+
+--4. Sa se afiseze cel mai mare salariu din fiecare salon.
+
+SELECT cod_salon, nume_salon, 
+    (SELECT MAX(salariu_angajat)
+    FROM angajat
+    WHERE s.cod_salon = cod_salon) "Cel mai mare salariu",
+    (SELECT oras
+    FROM locatie
+    WHERE cod_locatie = s.cod_locatie) "Oras"
+FROM salon s
+ORDER BY cod_salon;
+
+--5. Sa se afiseze numele, prenumele si data angajarii fiecarui angajat, precum si salariul actual, salariul marit daca lucreaza din 2016
+--sau din 2017 (20%, respectiv 10%), salariul micsorat daca lucreaza din 2018 sau din 2019 (5%, respectiv 10%).
+
+SELECT nume_angajat, prenume_angajat, data_angajarii, salariu_angajat, 
+    NVL((DECODE (TO_CHAR(data_angajarii, 'yyyy'), '2016', salariu_angajat * 1.2, '2017', salariu_angajat* 1.1)), salariu_angajat) "Salariu marit",
+    CASE TO_CHAR(data_angajarii, 'yyyy') 
+        WHEN '2018' THEN salariu_angajat * 0.95
+        WHEN '2019' THEN salariu_angajat * 0.9
+    ELSE salariu_angajat
+    END "Salariu micsorat"
+FROM angajat;
+
+
+
+
+--OPERATII DE ACTUALIZARE/SUPRIMARE A DATELOR
+
+--1. Actualizarea angajatilor cu un salariu mediu daca il au mai mic de
+--salariul mediu.
+
+UPDATE ANGAJAT
+SET (salariu_angajat) = (SELECT AVG(salariu_angajat)
+                        FROM angajat)
+WHERE salariu_angajat < (SELECT AVG(salariu_angajat)
+                        FROM angajat);
+ROLLBACK;
+
+
+--2. Sa se stearga intrarile din aprovizionat_de unde furnizorul are
+--contract cu salonul pe perioada nedeterminata - durata = null.
+
+DELETE FROM APROVIZIONAT_DE
+WHERE cod_furnizor IN (SELECT f.cod_furnizor 
+                      FROM furnizor f
+                      WHERE cod_furnizor = f.cod_furnizor and f.durata is null);       
+
+
+--3. Sa se actualizeze tabelul ingrijitor astfel incat fiecare ingrijitor
+--are 80% din media salariilor angajatilor.
+
+UPDATE INGRIJITOR
+SET salariu_ingrijitor =(SELECT 0.8 * AVG(salariu_angajat)
+                        FROM angajat);
+ROLLBACK;
